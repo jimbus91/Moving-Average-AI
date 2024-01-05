@@ -96,7 +96,7 @@ else:
     plt.ylabel('Price (USD)')
 
     # Set the plot title
-    plt.title(stock_ticker + ' Moving Average Price Prediction')
+    plt.title(stock_ticker.upper() + ' Moving Average Price Prediction')
 
     # Show the legend
     plt.legend()
