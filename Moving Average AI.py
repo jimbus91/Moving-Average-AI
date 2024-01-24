@@ -1,4 +1,5 @@
 import os
+import warnings
 import datetime
 import numpy as np
 import pandas as pd
@@ -7,100 +8,106 @@ import matplotlib.pyplot as plt
 import matplotlib.style as style
 import matplotlib.dates as mdates
 from sklearn.ensemble import HistGradientBoostingRegressor
-from sklearn.experimental import enable_hist_gradient_boosting
 
-# Ask the user for the stock ticker symbol
-stock_ticker = input("Enter the stock ticker symbol: ")
+# Suppress specific warnings
+warnings.filterwarnings('ignore', category=FutureWarning, message="Series.__getitem__ treating keys as positions is deprecated.*")
 
-# Get today's date
-today = datetime.datetime.now().date()
+while True:
+    # Ask the user for the stock ticker symbol
+    stock_ticker = input("Enter the stock ticker symbol or 'exit' to finish: ")
+    if stock_ticker.lower() == 'exit':
+        break
 
-# Subtract 365 days from today's date
-one_year_ago = today - datetime.timedelta(days=365)
+    # Get today's date
+    today = datetime.datetime.now().date()
 
-# Use the date one year ago as the start parameter in yf.download()
-data = yf.download(stock_ticker, start=one_year_ago)
+    # Subtract 365 days from today's date
+    one_year_ago = today - datetime.timedelta(days=365)
 
-if data.empty:
-    print("No data available for the stock ticker symbol: ", stock_ticker)
-else:
-    # Convert the date column to a datetime object
-    data['Date'] = pd.to_datetime(data.index)
+    # Use the date one year ago as the start parameter in yf.download()
+    data = yf.download(stock_ticker, start=one_year_ago)
 
-    # Set the date column as the index
-    data.set_index('Date', inplace=True)
+    if data.empty:
+        print("No data available for the stock ticker symbol:", stock_ticker, ". Please try another symbol.")
+        continue
+    else:
+        # Convert the date column to a datetime object
+        data['Date'] = pd.to_datetime(data.index)
 
-    # Sort the data by date
-    data.sort_index(inplace=True)
+        # Set the date column as the index
+        data.set_index('Date', inplace=True)
 
-    # Get the data for the last year
-    last_year = data.iloc[-365:].copy()
+        # Sort the data by date
+        data.sort_index(inplace=True)
 
-    # Calculate the 200-day moving average
-    last_year.loc[:,'200MA'] = last_year['Close'].rolling(window=200).mean()
+        # Get the data for the last year
+        last_year = data.iloc[-365:].copy()
 
-    # Split the data into X (features) and y (target)
-    X = last_year[['200MA']]
-    y = last_year['Close']
+        # Calculate the 200-day moving average
+        last_year['200MA'] = last_year['Close'].rolling(window=200).mean()
 
-    # Create an HistGradientBoostingRegressor instance
-    model = HistGradientBoostingRegressor()
+        # Split the data into X (features) and y (target)
+        X = last_year[['200MA']]
+        y = last_year['Close']
 
-    # Fit the model with the data
-    model.fit(X, y)
+        # Create an HistGradientBoostingRegressor instance
+        model = HistGradientBoostingRegressor()
 
-    # Make predictions for the next 30 days
-    future_dates = pd.date_range(start=data.index[-1], periods=30, freq='D')
-    future_data = pd.DataFrame(index=future_dates, columns=['200MA'])
-    future_data['200MA'] = last_year['200MA'].iloc[-1]
-    predictions = model.predict(future_data)
-    predictions_df = pd.DataFrame(predictions, index=future_dates, columns=['Close'])
+        # Fit the model with the data
+        model.fit(X, y)
 
-    # Calculate the standard deviation of the last year's close prices
-    std_dev = last_year['Close'].std()
+        # Make predictions for the next 30 days
+        future_dates = pd.date_range(start=data.index[-1], periods=30, freq='D')
+        future_data = pd.DataFrame(index=future_dates, columns=['200MA'])
+        future_data['200MA'] = last_year['200MA'].iloc[-1]
+        predictions = model.predict(future_data)
+        predictions_df = pd.DataFrame(predictions, index=future_dates, columns=['Close'])
 
-    # Generate random values with a standard deviation of 0.5 * the last year's close prices standard deviation
-    random_values = np.random.normal(0, 0.2 * std_dev, predictions.shape)
+        # Calculate the standard deviation of the last year's close prices
+        std_dev = last_year['Close'].std()
 
-    # Add the random values to the predicted prices
-    predictions += random_values
-    predictions_df = pd.DataFrame(predictions, index=future_dates, columns=['Close'])
+        # Generate random values with a standard deviation of 0.5 * the last year's close prices standard deviation
+        random_values = np.random.normal(0, 0.2 * std_dev, predictions.shape)
 
-    # Concatenate the last_year and predictions dataframes
-    predictions_df = pd.concat([last_year, predictions_df])
+        # Add the random values to the predicted prices
+        predictions += random_values
+        predictions_df = pd.DataFrame(predictions, index=future_dates, columns=['Close'])
 
-    # Calculate 200 day moving average
-    predictions_df.loc[:,'MA_200'] = predictions_df['Close'].rolling(window=200).mean()
+        # Concatenate the last_year and predictions dataframes
+        predictions_df = pd.concat([last_year, predictions_df])
 
-    # Set the style to dark theme
-    style.use('dark_background')
+        # Calculate 200 day moving average
+        predictions_df['MA_200'] = predictions_df['Close'].rolling(window=200).mean()
 
-    # Create the plot
-    fig, ax = plt.subplots()
+        # Set the style to dark theme
+        style.use('dark_background')
 
-    # Plot the predicted close prices for the next 30 days
-    ax.plot(predictions_df.index, predictions_df['Close'], color='green' if predictions_df['Close'][-1] >= last_year['Close'][-1] else 'red', label='Predicted')
+        # Create the plot
+        fig, ax = plt.subplots()
 
-    # Plot the actual close prices for the last year
-    ax.plot(last_year.index, last_year['Close'], color='b', label='Actual')
+        # Plot the predicted close prices for the next 30 days
+        ax.plot(predictions_df.index, predictions_df['Close'], color='green' if predictions_df['Close'][-1] >= last_year['Close'][-1] else 'red', label='Predicted')
 
-    ax.plot(predictions_df.index, predictions_df['MA_200'], color='white', label='200 Day MA')
+        # Plot the actual close prices for the last year
+        ax.plot(last_year.index, last_year['Close'], color='b', label='Actual')
 
-    # Set x-axis as date format
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%B %D %Y"))
-    plt.xticks(rotation=45)
+        ax.plot(predictions_df.index, predictions_df['MA_200'], color='white', label='200 Day MA')
 
-    # Set the x-axis label
-    plt.xlabel('Date')
+        # Set x-axis as date format
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%B %D %Y"))
+        plt.xticks(rotation=45)
 
-    # Set the y-axis label
-    plt.ylabel('Price (USD)')
+        # Set the x-axis label
+        plt.xlabel('Date')
 
-    # Set the plot title
-    plt.title(stock_ticker.upper() + ' Moving Average Price Prediction')
+        # Set the y-axis label
+        plt.ylabel('Price (USD)')
 
-    # Show the legend
-    plt.legend()
+        # Set the plot title
+        plt.title(stock_ticker.upper() + ' Moving Average Price Prediction')
 
-    # Show the plot
-    plt.show()
+        # Show the legend
+        plt.legend()
+
+        # Show the plot
+        plt.show()
